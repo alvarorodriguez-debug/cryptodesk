@@ -195,93 +195,144 @@ function WizStep2({opData,updOp,setOpStep,getCliente}){
 // P&L = exit - entry  (real gain/loss from the trade)
 function WizStep3({opData,updOp,setOpStep,allMonedas}){
   const d = opData
-  const montoEnt = parseFloat(d.entMonto)||0
-  const montoSal = parseFloat(d.salMonto)||0
-  const comPct   = d.comision!==''&&d.comision!=null ? parseFloat(d.comision) : NaN
+  const montoEnt  = parseFloat(d.entMonto)||0
+  const montoSal  = parseFloat(d.salMonto)||0
+  const comPct    = d.comision!==''&&d.comision!=null ? parseFloat(d.comision) : NaN
+  const tasa      = parseFloat(d.tasa)||0
+  const sameCcy   = d.entMoneda && d.salMoneda && d.entMoneda.toUpperCase()===d.salMoneda.toUpperCase()
 
-  // handler: when entry changes, recompute commission if exit is already set
-  function onEntMonto(v) {
-    updOp('entMonto', v)
-    const ent = parseFloat(v)||0
-    const sal = parseFloat(d.salMonto)||0
-    if (ent>0 && sal>0) {
-      updOp('comision', parseFloat(((sal-ent)/ent*100).toFixed(6)).toString())
-    }
+  // same currency: entry+exit → auto commission %
+  function onEntMonto(v){
+    updOp('entMonto',v)
+    if(sameCcy){const ent=parseFloat(v)||0,sal=parseFloat(d.salMonto)||0;if(ent>0&&sal>0)updOp('comision',parseFloat(((sal-ent)/ent*100).toFixed(6)).toString())}
   }
-  // handler: when exit changes, always recompute commission
-  function onSalMonto(v) {
-    updOp('salMonto', v)
-    const ent = parseFloat(d.entMonto)||0
-    const sal = parseFloat(v)||0
-    if (ent>0 && sal>0) {
-      updOp('comision', parseFloat(((sal-ent)/ent*100).toFixed(6)).toString())
-    }
+  function onSalMonto(v){
+    updOp('salMonto',v)
+    if(sameCcy){const ent=parseFloat(d.entMonto)||0,sal=parseFloat(v)||0;if(ent>0&&sal>0)updOp('comision',parseFloat(((sal-ent)/ent*100).toFixed(6)).toString())}
   }
-  // handler: when commission changes and exit is empty, compute exit
-  function onComision(v) {
-    updOp('comision', v)
-    const ent = parseFloat(d.entMonto)||0
-    const pct = parseFloat(v)
-    if (ent>0 && !isNaN(pct) && (!d.salMonto||d.salMonto==='')) {
-      updOp('salMonto', parseFloat((ent + ent*pct/100).toFixed(6)).toString())
-    }
+  function onComision(v){
+    updOp('comision',v)
+    if(sameCcy){const ent=parseFloat(d.entMonto)||0,pct=parseFloat(v);if(ent>0&&!isNaN(pct)&&(!d.salMonto||d.salMonto===''))updOp('salMonto',parseFloat((ent+ent*pct/100).toFixed(6)).toString())}
   }
 
-  // P&L from operator view:
-  // compra: you receive entrada, pay salida → gain = entrada - salida
-  // venta:  you deliver entrada, receive salida → gain = salida - entrada
-  // transferencia: internal move, P&L = 0
-  const pnlMonto = !d.tipo||d.tipo==='transferencia' ? 0
-                 : d.tipo==='compra'         ? montoEnt - montoSal
-                 :                             montoSal - montoEnt
-  const pnlSameCcy = d.entMoneda && d.salMoneda && d.entMoneda.toUpperCase()===d.salMoneda.toUpperCase()
-  const showCalc   = montoEnt>0 && montoSal>0
-  const comDisplay = !isNaN(comPct) ? comPct.toFixed(4)+'%' : '—'
+  // different currencies: tasa = units of salida per 1 entrada (e.g. 6300 PYG/USDT)
+  function onTasa(v){
+    updOp('tasa',v)
+    const t=parseFloat(v)||0,ent=parseFloat(d.entMonto)||0,pct=parseFloat(d.comision)||0
+    if(t>0&&ent>0) updOp('salMonto',parseFloat((ent*t*(1+pct/100)).toFixed(2)).toString())
+  }
+  function onEntMontoDiff(v){
+    updOp('entMonto',v)
+    const t=parseFloat(d.tasa)||0,ent=parseFloat(v)||0,pct=parseFloat(d.comision)||0
+    if(t>0&&ent>0) updOp('salMonto',parseFloat((ent*t*(1+pct/100)).toFixed(2)).toString())
+  }
+  function onSalMontoDiff(v){
+    updOp('salMonto',v)
+    const t=parseFloat(d.tasa)||0,ent=parseFloat(d.entMonto)||0,sal=parseFloat(v)||0
+    if(t>0&&ent>0&&sal>0){const base=ent*t;updOp('comision',parseFloat(((sal-base)/base*100).toFixed(4)).toString())}
+  }
+  function onComisionDiff(v){
+    updOp('comision',v)
+    const t=parseFloat(d.tasa)||0,ent=parseFloat(d.entMonto)||0,pct=parseFloat(v)||0
+    if(t>0&&ent>0) updOp('salMonto',parseFloat((ent*t*(1+pct/100)).toFixed(2)).toString())
+  }
+
+  // P&L preview in entrada currency
+  let pnlMonto=null
+  if(d.tipo&&d.tipo!=='transferencia'&&montoEnt>0&&montoSal>0){
+    if(sameCcy){
+      pnlMonto = d.tipo==='compra' ? montoEnt-montoSal : montoSal-montoEnt
+    } else if(tasa>0){
+      const salInEnt=montoSal/tasa
+      pnlMonto = d.tipo==='compra' ? montoEnt-salInEnt : salInEnt-montoEnt
+    }
+  }
+  const comMontoEnt = !isNaN(comPct)&&montoEnt>0 ? Math.abs(montoEnt*comPct/100) : 0
+  const comDisplay  = !isNaN(comPct) ? comPct.toFixed(4)+'%' : '—'
+  const showCalc    = montoEnt>0&&montoSal>0
 
   return(
     <div>
       <div style={S.cardTitle}>Montos y comisión</div>
+
       <div style={S.row2}>
         <div>
           <label style={S.lbl}>Moneda de entrada</label>
-          <select value={d.entMoneda} onChange={e=>updOp('entMoneda',e.target.value)} style={{width:'100%'}}>
+          <select value={d.entMoneda} onChange={e=>updOp('entMoneda',e.target.value)}>
             <option value="">— Seleccionar —</option>
             {(allMonedas||[]).map(m=><option key={m} value={m}>{m}</option>)}
           </select>
         </div>
-        <div><label style={S.lbl}>Monto de entrada</label><input type="number" value={d.entMonto} onChange={e=>onEntMonto(e.target.value)} placeholder="0.00"/></div>
-      </div>
-      <div style={S.row2}>
         <div>
           <label style={S.lbl}>Moneda de salida</label>
-          <select value={d.salMoneda} onChange={e=>updOp('salMoneda',e.target.value)} style={{width:'100%'}}>
+          <select value={d.salMoneda} onChange={e=>updOp('salMoneda',e.target.value)}>
             <option value="">— Seleccionar —</option>
             {(allMonedas||[]).map(m=><option key={m} value={m}>{m}</option>)}
           </select>
         </div>
+      </div>
+
+      {!sameCcy&&d.entMoneda&&d.salMoneda&&(
+        <div style={{marginBottom:'12px'}}>
+          <label style={S.lbl}>
+            Tasa de cambio
+            <span style={{fontSize:'10px',color:'var(--text3)',fontWeight:'400',marginLeft:'6px'}}>
+              unidades de {d.salMoneda} por 1 {d.entMoneda}
+            </span>
+          </label>
+          <input type="number" value={d.tasa} onChange={e=>onTasa(e.target.value)} placeholder={`ej: 6300  →  1 ${d.entMoneda} = 6,300 ${d.salMoneda}`}/>
+        </div>
+      )}
+
+      <div style={S.row2}>
         <div>
-          <label style={S.lbl}>Monto de salida <span style={{fontSize:'10px',color:'var(--text3)',fontWeight:'400'}}>{montoEnt>0&&!d.salMonto&&!isNaN(comPct)?'← se calcula con comisión':''}</span></label>
-          <input type="number" value={d.salMonto} onChange={e=>onSalMonto(e.target.value)} placeholder="0.00"/>
+          <label style={S.lbl}>Monto de entrada</label>
+          <input type="number" value={d.entMonto} onChange={e=>sameCcy?onEntMonto(e.target.value):onEntMontoDiff(e.target.value)} placeholder="0.00"/>
+        </div>
+        <div>
+          <label style={S.lbl}>
+            Monto de salida
+            {!sameCcy&&tasa>0&&<span style={{fontSize:'10px',color:'var(--text3)',fontWeight:'400',marginLeft:'4px'}}>← calculado con tasa</span>}
+          </label>
+          <input type="number" value={d.salMonto} onChange={e=>sameCcy?onSalMonto(e.target.value):onSalMontoDiff(e.target.value)} placeholder="0.00"/>
         </div>
       </div>
+
       <div style={S.row2}>
         <div><label style={S.lbl}>Referencia</label><input value={d.referencia} onChange={e=>updOp('referencia',e.target.value)} placeholder="Nro. orden, código..."/></div>
         <div>
-          <label style={S.lbl}>Comisión (%) <span style={{fontSize:'10px',color:'var(--text3)',fontWeight:'400'}}>{montoEnt>0&&montoSal>0?'← calculada automáticamente':''}</span></label>
-          <input type="number" step="0.0001" value={d.comision} onChange={e=>onComision(e.target.value)} placeholder="ej: 1.28 o -1.28"/>
+          <label style={S.lbl}>
+            Comisión (%)
+            <span style={{fontSize:'10px',color:'var(--text3)',fontWeight:'400',marginLeft:'4px'}}>
+              {sameCcy&&montoEnt>0&&montoSal>0?'← calculada':'sobre monto entrada'}
+            </span>
+          </label>
+          <input type="number" step="0.0001" value={d.comision} onChange={e=>sameCcy?onComision(e.target.value):onComisionDiff(e.target.value)} placeholder="ej: 3 o -1.5"/>
         </div>
       </div>
+
       {showCalc&&(
         <div style={S.calcBox}>
-          <div style={S.calcRow}><span>Monto de entrada</span><span>{fmt(montoEnt,4)} {d.entMoneda}</span></div>
-          <div style={S.calcRow}><span>Monto de salida</span><span>{fmt(montoSal,4)} {d.salMoneda}</span></div>
-          <div style={S.calcRow}><span>Comisión</span><span>{comDisplay}</span></div>
-          <div style={{...S.calcTotal,color:pnlMonto>=0?'var(--green)':'var(--red)'}}>
-            <span>Ganancia / Pérdida {pnlSameCcy?'':'(moneda entrada)'}</span>
-            <span>{pnlMonto>=0?'+':''}{fmt(pnlMonto,4)} {d.entMoneda||''}</span>
-          </div>
+          <div style={S.calcRow}><span>Monto entrada</span><span style={{fontWeight:'500'}}>{fmt(montoEnt,2)} {d.entMoneda}</span></div>
+          {!sameCcy&&tasa>0&&<div style={S.calcRow}><span>Tasa</span><span>1 {d.entMoneda} = {fmt(tasa,2)} {d.salMoneda}</span></div>}
+          <div style={S.calcRow}><span>Monto salida</span><span style={{fontWeight:'500'}}>{fmt(montoSal,2)} {d.salMoneda}</span></div>
+          {!isNaN(comPct)&&comPct!==0&&<div style={S.calcRow}><span>Comisión ({comDisplay})</span><span>{comPct>=0?'+ ':'- '}{fmt(comMontoEnt,4)} {d.entMoneda}</span></div>}
+          {pnlMonto!==null?(
+            <div style={{...S.calcTotal,color:pnlMonto>=0?'var(--green)':'var(--red)'}}>
+              <span>Ganancia / Pérdida</span>
+              <span>{pnlMonto>=0?'+':''}{fmt(pnlMonto,4)} {d.entMoneda}</span>
+            </div>
+          ):(
+            !sameCcy&&!tasa&&montoEnt>0&&montoSal>0&&(
+              <div style={{...S.calcTotal,color:'var(--text3)'}}>
+                <span>Ganancia / Pérdida</span>
+                <span style={{fontSize:'12px'}}>Ingresá la tasa para calcular</span>
+              </div>
+            )
+          )}
         </div>
       )}
+
       <div style={{display:'flex',justifyContent:'space-between',marginTop:'16px'}}>
         <Btn onClick={()=>setOpStep(2)}>Atrás</Btn>
         <Btn variant="primary" disabled={!montoSal||!d.entMoneda||!d.salMoneda} onClick={()=>setOpStep(4)}>Continuar</Btn>
@@ -382,7 +433,7 @@ export default function App() {
   const [rates,       setRates]       = useState({})
   const [ratesTs,     setRatesTs]     = useState(null)
 
-  function freshOp(){return{cliente:null,tipo:'',entMoneda:'',entMonto:'',salMoneda:'',salMonto:'',referencia:'',comision:'',cuentaEntrada:null,cuentaSalida:null}}
+  function freshOp(){return{cliente:null,tipo:'',entMoneda:'',entMonto:'',salMoneda:'',salMonto:'',tasa:'',referencia:'',comision:'',cuentaEntrada:null,cuentaSalida:null}}
   function resetOp(){setOpStep(1);setOpData(freshOp())}
   const updOp = useCallback((k,v)=>setOpData(p=>({...p,[k]:v})),[])
 
@@ -449,6 +500,7 @@ export default function App() {
       id:'op-'+Date.now(),clienteId:d.cliente,tipo:d.tipo,
       entrada:{moneda:d.entMoneda,monto:montoEnt.toString()},
       salida:{moneda:d.salMoneda,monto:montoSal.toString()},
+      tasa:parseFloat(d.tasa)||null,
       referencia:d.referencia,comisionPct:comPct,comisionMonto:parseFloat((montoEnt*Math.abs(comPct)/100).toFixed(8)),
       pnlMonto,pnlMoneda:d.entMoneda,
       cuentaEntradaId:d.cuentaEntrada,cuentaSalidaId:d.cuentaSalida||null,
@@ -480,14 +532,28 @@ export default function App() {
   }
   function removeComprobante(opId,idx){setOperaciones(p=>p.map(o=>o.id===opId?{...o,comprobantes:(o.comprobantes||[]).filter((_,i)=>i!==idx)}:o))}
 
-  // Real P&L in USD — sign depends on operation type
+  // Real P&L in USD — tasa-aware, sign depends on operation type
   function pnlUSD(op){
     if(op.tipo==='transferencia') return 0
-    const entUSD=toUSD(op.entrada.monto,op.entrada.moneda)
-    const salUSD=toUSD(op.salida.monto,op.salida.moneda)
+    const ent=parseFloat(op.entrada.monto)||0
+    const sal=parseFloat(op.salida.monto)||0
+    const sameCcy=op.entrada.moneda&&op.salida.moneda&&op.entrada.moneda.toUpperCase()===op.salida.moneda.toUpperCase()
+    if(sameCcy){
+      // same currency: direct comparison, convert to USD
+      const pnlInCcy = op.tipo==='compra' ? ent-sal : sal-ent
+      return toUSD(pnlInCcy,op.entrada.moneda)??pnlInCcy
+    }
+    // different currencies: use stored tasa first, then live rates
+    const tasa=op.tasa
+    if(tasa&&tasa>0){
+      const salInEnt=sal/tasa
+      const pnlInEnt=op.tipo==='compra' ? ent-salInEnt : salInEnt-ent
+      return toUSD(pnlInEnt,op.entrada.moneda)??pnlInEnt
+    }
+    // fallback: live rates
+    const entUSD=toUSD(ent,op.entrada.moneda)
+    const salUSD=toUSD(sal,op.salida.moneda)
     if(entUSD===null||salUSD===null) return null
-    // compra: gain = entUSD - salUSD (received more than paid)
-    // venta:  gain = salUSD - entUSD (received more than delivered)
     return op.tipo==='compra' ? entUSD-salUSD : salUSD-entUSD
   }
 
