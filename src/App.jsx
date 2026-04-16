@@ -798,13 +798,178 @@ ${cuenta?.tipo === 'crypto'
     )
   }
 
+  // ── Configuraciones ────────────────────────────────────────────────────────
+  function Configuraciones() {
+    const TIPOS_BASE  = ['crypto', 'banco', 'efectivo']
+    const MONEDAS_BASE = ['USDT', 'USD', 'PYG', 'EUR', 'BRL', 'ARS']
+    const REDES_BASE  = ['TRC20', 'ERC20', 'BEP20', 'POLYGON', 'SOLANA']
+
+    const [tiposExtra,   setTiposExtra]   = useState(() => storage.get('opt_tipos')   || [])
+    const [monedasExtra, setMonedasExtra] = useState(() => storage.get('opt_monedas') || [])
+    const [redesExtra,   setRedesExtra]   = useState(() => storage.get('opt_redes')   || [])
+
+    // inline-add state por catálogo
+    const [adding, setAdding] = useState(null) // 'tipo' | 'moneda' | 'red'
+    const [newVal, setNewVal] = useState('')
+
+    // inline-edit state
+    const [editing, setEditing] = useState(null) // { cat, idx, val }
+
+    function persist(cat, next) {
+      if (cat === 'tipo')   { setTiposExtra(next);   storage.set('opt_tipos',   next) }
+      if (cat === 'moneda') { setMonedasExtra(next); storage.set('opt_monedas', next) }
+      if (cat === 'red')    { setRedesExtra(next);   storage.set('opt_redes',   next) }
+    }
+
+    function addItem(cat) {
+      const v = newVal.trim().toUpperCase()
+      if (!v) return
+      const base = cat === 'tipo' ? TIPOS_BASE : cat === 'moneda' ? MONEDAS_BASE : REDES_BASE
+      const extra = cat === 'tipo' ? tiposExtra : cat === 'moneda' ? monedasExtra : redesExtra
+      const all = [...base.map(x => x.toUpperCase()), ...extra.map(x => x.toUpperCase())]
+      if (all.includes(v)) { alert('Ya existe ese valor'); return }
+      persist(cat, [...extra, newVal.trim()])
+      setNewVal(''); setAdding(null)
+    }
+
+    function deleteItem(cat, val) {
+      if (!window.confirm(`¿Eliminar "${val}"?`)) return
+      const extra = cat === 'tipo' ? tiposExtra : cat === 'moneda' ? monedasExtra : redesExtra
+      persist(cat, extra.filter(x => x !== val))
+    }
+
+    function startEdit(cat, val) {
+      setEditing({ cat, val, draft: val })
+    }
+
+    function saveEdit() {
+      if (!editing) return
+      const { cat, val, draft } = editing
+      const trimmed = draft.trim()
+      if (!trimmed) return
+      const extra = cat === 'tipo' ? tiposExtra : cat === 'moneda' ? monedasExtra : redesExtra
+      persist(cat, extra.map(x => x === val ? trimmed : x))
+      setEditing(null)
+    }
+
+    function CatalogSection({ title, cat, baseItems, extraItems, addPlaceholder }) {
+      const allItems = [...baseItems, ...extraItems]
+      return (
+        <div style={S.card}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'14px' }}>
+            <div>
+              <div style={{ fontSize:'14px', fontWeight:'500' }}>{title}</div>
+              <div style={{ fontSize:'11px', color:'var(--text3)', marginTop:'2px' }}>{allItems.length} valores · {baseItems.length} predeterminados · {extraItems.length} personalizados</div>
+            </div>
+            <Btn sm variant="primary" onClick={() => { setAdding(cat); setNewVal('') }}>+ Agregar</Btn>
+          </div>
+
+          {/* Items base — solo lectura */}
+          <div style={{ marginBottom:'8px' }}>
+            <div style={{ fontSize:'11px', color:'var(--text3)', marginBottom:'6px', fontWeight:'500', letterSpacing:'0.3px' }}>PREDETERMINADOS</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:'6px' }}>
+              {baseItems.map(item => (
+                <div key={item} style={{ display:'flex', alignItems:'center', gap:'6px', padding:'5px 12px', borderRadius:'20px', background:'var(--bg3)', border:'0.5px solid var(--border)', fontSize:'12px', color:'var(--text2)' }}>
+                  {item}
+                  <span style={{ fontSize:'10px', color:'var(--text3)' }}>bloqueado</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <hr style={S.divider} />
+
+          {/* Items personalizados — editables */}
+          <div>
+            <div style={{ fontSize:'11px', color:'var(--text3)', marginBottom:'6px', fontWeight:'500', letterSpacing:'0.3px' }}>PERSONALIZADOS</div>
+            {extraItems.length === 0 && adding !== cat && (
+              <div style={{ fontSize:'12px', color:'var(--text3)', padding:'8px 0' }}>Sin valores personalizados aún.</div>
+            )}
+            <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
+              {extraItems.map((item) => (
+                <div key={item} style={{ display:'flex', alignItems:'center', gap:'8px', padding:'8px 12px', borderRadius:'var(--radius)', border:'0.5px solid var(--border)', background:'var(--bg3)' }}>
+                  {editing?.cat === cat && editing?.val === item ? (
+                    <>
+                      <input
+                        autoFocus
+                        value={editing.draft}
+                        onChange={e => setEditing(p => ({ ...p, draft: e.target.value }))}
+                        onKeyDown={e => { if(e.key==='Enter') saveEdit(); if(e.key==='Escape') setEditing(null) }}
+                        style={{ flex:1, padding:'4px 8px', fontSize:'12px' }}
+                      />
+                      <Btn sm variant="primary" onClick={saveEdit}>Guardar</Btn>
+                      <Btn sm onClick={() => setEditing(null)}>Cancelar</Btn>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ flex:1, fontSize:'13px' }}>{item}</span>
+                      <Btn sm onClick={() => startEdit(cat, item)}>Editar</Btn>
+                      <Btn sm variant="danger" onClick={() => deleteItem(cat, item)}>Eliminar</Btn>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Formulario inline de agregar */}
+            {adding === cat && (
+              <div style={{ display:'flex', gap:'6px', marginTop:'8px' }}>
+                <input
+                  autoFocus
+                  value={newVal}
+                  onChange={e => setNewVal(e.target.value)}
+                  onKeyDown={e => { if(e.key==='Enter') addItem(cat); if(e.key==='Escape') setAdding(null) }}
+                  placeholder={addPlaceholder}
+                  style={{ flex:1 }}
+                />
+                <Btn sm variant="primary" onClick={() => addItem(cat)}>Agregar</Btn>
+                <Btn sm onClick={() => setAdding(null)}>Cancelar</Btn>
+              </div>
+            )}
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div>
+        <div style={{ ...S.h2, marginBottom:'6px' }}>Configuraciones</div>
+        <div style={{ fontSize:'13px', color:'var(--text2)', marginBottom:'20px' }}>
+          Administrá los catálogos usados en el formulario de cuentas.
+        </div>
+        <CatalogSection
+          title="Tipos de cuenta"
+          cat="tipo"
+          baseItems={TIPOS_BASE}
+          extraItems={tiposExtra}
+          addPlaceholder="Ej: PayPal, Wise, Transferencia..."
+        />
+        <CatalogSection
+          title="Monedas"
+          cat="moneda"
+          baseItems={MONEDAS_BASE}
+          extraItems={monedasExtra}
+          addPlaceholder="Ej: GBP, USDC, CLP..."
+        />
+        <CatalogSection
+          title="Redes crypto"
+          cat="red"
+          baseItems={REDES_BASE}
+          extraItems={redesExtra}
+          addPlaceholder="Ej: ARBITRUM, AVALANCHE, NEAR..."
+        />
+      </div>
+    )
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
   const navItems = [
-    { id:'dashboard', label:'Dashboard' },
-    { id:'nueva', label:'Nueva operación' },
-    { id:'operaciones', label:'Operaciones' },
-    { id:'clientes', label:'Clientes' },
-    { id:'cuentas', label:'Cuentas' },
+    { id:'dashboard',       label:'Dashboard' },
+    { id:'nueva',           label:'Nueva operación' },
+    { id:'operaciones',     label:'Operaciones' },
+    { id:'clientes',        label:'Clientes' },
+    { id:'cuentas',         label:'Cuentas' },
+    { id:'configuraciones', label:'Configuraciones' },
   ]
 
   return (
@@ -821,11 +986,12 @@ ${cuenta?.tipo === 'crypto'
         ))}
       </div>
       <div style={S.main}>
-        {view === 'dashboard' && <Dashboard />}
-        {view === 'nueva' && <NuevaOp />}
-        {view === 'operaciones' && <Operaciones />}
-        {view === 'clientes' && <Clientes />}
-        {view === 'cuentas' && <Cuentas />}
+        {view === 'dashboard'       && <Dashboard />}
+        {view === 'nueva'           && <NuevaOp />}
+        {view === 'operaciones'     && <Operaciones />}
+        {view === 'clientes'        && <Clientes />}
+        {view === 'cuentas'         && <Cuentas />}
+        {view === 'configuraciones' && <Configuraciones />}
       </div>
       {modal?.type === 'verOp' && <VerOpModal id={modal.id} />}
       {(modal?.type === 'nuevoCliente' || modal?.type === 'editarCliente') && <ClienteModal cliente={modal.cliente} preNombre={modal.preNombre} onSave={modal.onSave} />}
