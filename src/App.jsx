@@ -647,40 +647,147 @@ ${cuenta?.tipo === 'crypto'
 
   function CuentaModal({ cuenta }) {
     const editing = !!cuenta
+
+    // Opciones por defecto — se guardan en localStorage para persistir los custom
+    const [tiposExtra, setTiposExtra] = useState(() => storage.get('opt_tipos') || [])
+    const [monedasExtra, setMonedasExtra] = useState(() => storage.get('opt_monedas') || [])
+    const [redesExtra, setRedesExtra] = useState(() => storage.get('opt_redes') || [])
+
+    const TIPOS_BASE = ['crypto', 'banco', 'efectivo']
+    const MONEDAS_BASE = ['USDT', 'USD', 'PYG', 'EUR', 'BRL', 'ARS']
+    const REDES_BASE = ['TRC20', 'ERC20', 'BEP20', 'POLYGON', 'SOLANA']
+
+    const tiposOpts = [...TIPOS_BASE, ...tiposExtra]
+    const monedasOpts = [...MONEDAS_BASE, ...monedasExtra]
+    const redesOpts = [...REDES_BASE, ...redesExtra]
+
     const [form, setForm] = useState(cuenta || { nombre:'', tipo:'crypto', moneda:'', red:'', direccion:'', numero:'', agencia:'', descripcion:'' })
     const upd = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+    // ComboSelect: desplegable + campo "Otro" inline
+    function ComboSelect({ label, value, options, onChange, onAddCustom, placeholder }) {
+      const isCustom = value && !options.includes(value)
+      const [showCustom, setShowCustom] = useState(isCustom)
+      const [customVal, setCustomVal] = useState(isCustom ? value : '')
+
+      function handleSelect(e) {
+        const v = e.target.value
+        if (v === '__custom__') {
+          setShowCustom(true)
+          setCustomVal('')
+          onChange('')
+        } else {
+          setShowCustom(false)
+          onChange(v)
+        }
+      }
+
+      function confirmCustom() {
+        const v = customVal.trim()
+        if (!v) return
+        onAddCustom(v)
+        onChange(v)
+        setShowCustom(false)
+      }
+
+      return (
+        <div>
+          <label style={S.label}>{label}</label>
+          <select value={showCustom ? '__custom__' : (value || '')} onChange={handleSelect}>
+            <option value="" disabled>Seleccionar...</option>
+            {options.map(o => <option key={o} value={o}>{o}</option>)}
+            <option value="__custom__">+ Agregar nuevo...</option>
+          </select>
+          {showCustom && (
+            <div style={{ display:'flex', gap:'6px', marginTop:'6px' }}>
+              <input
+                autoFocus
+                value={customVal}
+                onChange={e => setCustomVal(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && confirmCustom()}
+                placeholder={placeholder || 'Escribí el valor...'}
+                style={{ flex:1 }}
+              />
+              <Btn sm variant="primary" onClick={confirmCustom}>OK</Btn>
+              <Btn sm onClick={() => { setShowCustom(false); onChange(options[0] || '') }}>✕</Btn>
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    function addTipo(v) { const n = [...tiposExtra, v]; setTiposExtra(n); storage.set('opt_tipos', n) }
+    function addMoneda(v) { const n = [...monedasExtra, v]; setMonedasExtra(n); storage.set('opt_monedas', n) }
+    function addRed(v) { const n = [...redesExtra, v]; setRedesExtra(n); storage.set('opt_redes', n) }
+
     function submit() {
       if (!form.nombre.trim()) { alert('El nombre es requerido'); return }
       saveCuenta({ ...form, id: cuenta?.id })
       setModal(null)
     }
+
+    const esCrypto = form.tipo === 'crypto'
+
     return (
       <div style={S.modalBg} onClick={() => setModal(null)}>
         <div style={S.modal} onClick={e => e.stopPropagation()}>
           <div style={{ fontSize:'15px', fontWeight:'600', marginBottom:'16px' }}>{editing ? 'Editar' : 'Nueva'} cuenta</div>
-          <div style={S.formRowFull}><label style={S.label}>Nombre de la cuenta</label><input value={form.nombre} onChange={e => upd('nombre', e.target.value)} placeholder="Binance Pay, Banco X..." /></div>
-          <div style={S.formRow}>
-            <div><label style={S.label}>Tipo</label>
-              <select value={form.tipo} onChange={e => upd('tipo', e.target.value)}>
-                <option value="crypto">Crypto</option>
-                <option value="banco">Banco</option>
-              </select>
-            </div>
-            <div><label style={S.label}>Moneda</label><input value={form.moneda} onChange={e => upd('moneda', e.target.value)} placeholder="USDT, BRL..." /></div>
+
+          <div style={S.formRowFull}>
+            <label style={S.label}>Nombre de la cuenta</label>
+            <input value={form.nombre} onChange={e => upd('nombre', e.target.value)} placeholder="Binance Pay, Banco Itaú, Efectivo USD..." />
           </div>
-          {form.tipo === 'crypto' ? <>
-            <div style={S.formRow}>
-              <div><label style={S.label}>Red</label><input value={form.red} onChange={e => upd('red', e.target.value)} placeholder="BEP20, TRC20..." /></div>
-              <div />
-            </div>
-            <div style={S.formRowFull}><label style={S.label}>Dirección / Wallet</label><input value={form.direccion} onChange={e => upd('direccion', e.target.value)} placeholder="0x..." /></div>
-          </> : <>
+
+          <div style={S.formRow}>
+            <ComboSelect
+              label="Tipo"
+              value={form.tipo}
+              options={tiposOpts}
+              onChange={v => upd('tipo', v)}
+              onAddCustom={addTipo}
+              placeholder="Ej: PayPal, Wise..."
+            />
+            <ComboSelect
+              label="Moneda"
+              value={form.moneda}
+              options={monedasOpts}
+              onChange={v => upd('moneda', v)}
+              onAddCustom={addMoneda}
+              placeholder="Ej: GBP, USDC..."
+            />
+          </div>
+
+          {esCrypto && (
+            <>
+              <div style={{ ...S.formRow, gridTemplateColumns:'1fr' }}>
+                <ComboSelect
+                  label="Red"
+                  value={form.red}
+                  options={redesOpts}
+                  onChange={v => upd('red', v)}
+                  onAddCustom={addRed}
+                  placeholder="Ej: ARBITRUM, AVALANCHE..."
+                />
+              </div>
+              <div style={S.formRowFull}>
+                <label style={S.label}>Dirección / Wallet</label>
+                <input value={form.direccion} onChange={e => upd('direccion', e.target.value)} placeholder="0x..." />
+              </div>
+            </>
+          )}
+
+          {!esCrypto && form.tipo !== 'efectivo' && (
             <div style={S.formRow}>
               <div><label style={S.label}>Número de cuenta</label><input value={form.numero} onChange={e => upd('numero', e.target.value)} placeholder="12345-6" /></div>
-              <div><label style={S.label}>Agencia</label><input value={form.agencia} onChange={e => upd('agencia', e.target.value)} placeholder="0001" /></div>
+              <div><label style={S.label}>Agencia / CBU / CVU</label><input value={form.agencia} onChange={e => upd('agencia', e.target.value)} placeholder="0001" /></div>
             </div>
-          </>}
-          <div style={S.formRowFull}><label style={S.label}>Descripción (opcional)</label><input value={form.descripcion} onChange={e => upd('descripcion', e.target.value)} placeholder="Cuenta principal..." /></div>
+          )}
+
+          <div style={S.formRowFull}>
+            <label style={S.label}>Descripción (opcional)</label>
+            <input value={form.descripcion} onChange={e => upd('descripcion', e.target.value)} placeholder="Cuenta principal, solo clientes VIP..." />
+          </div>
+
           <div style={{ display:'flex', gap:'8px', marginTop:'16px', justifyContent:'flex-end' }}>
             {editing && <Btn variant="danger" onClick={() => { if(window.confirm('¿Eliminar cuenta?')){ deleteCuenta(cuenta.id); setModal(null) } }}>Eliminar</Btn>}
             <Btn onClick={() => setModal(null)}>Cancelar</Btn>
