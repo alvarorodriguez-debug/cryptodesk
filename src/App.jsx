@@ -343,17 +343,151 @@ function WizStep3({opData,updOp,setOpStep,allMonedas}){
 
 function WizStep4({opData,updOp,setOpStep,cuentas,navTo}){
   const esTrans = opData.tipo==='transferencia'
+  const monEnt  = (opData.entMoneda||'').toUpperCase()
+  const monSal  = (opData.salMoneda||'').toUpperCase()
+
+  // cuentasEntrada: [{cuentaId, monto}]  — multiple allowed
+  // cuentasSalida:  [{cuentaId, monto}]
+  const cuentasEnt = opData.cuentasEntrada || []
+  const cuentasSal = opData.cuentasSalida  || []
+
+  function addEnt(cuentaId){
+    if(cuentasEnt.find(r=>r.cuentaId===cuentaId)) return
+    updOp('cuentasEntrada',[...cuentasEnt,{cuentaId,monto:''}])
+    // keep legacy single field in sync
+    if(cuentasEnt.length===0) updOp('cuentaEntrada',cuentaId)
+  }
+  function removeEnt(cuentaId){
+    const next=cuentasEnt.filter(r=>r.cuentaId!==cuentaId)
+    updOp('cuentasEntrada',next)
+    updOp('cuentaEntrada',next[0]?.cuentaId||null)
+  }
+  function updEntMonto(cuentaId,v){
+    updOp('cuentasEntrada',cuentasEnt.map(r=>r.cuentaId===cuentaId?{...r,monto:v}:r))
+  }
+  function addSal(cuentaId){
+    if(cuentasSal.find(r=>r.cuentaId===cuentaId)) return
+    updOp('cuentasSalida',[...cuentasSal,{cuentaId,monto:''}])
+    if(cuentasSal.length===0) updOp('cuentaSalida',cuentaId)
+  }
+  function removeSal(cuentaId){
+    const next=cuentasSal.filter(r=>r.cuentaId!==cuentaId)
+    updOp('cuentasSalida',next)
+    updOp('cuentaSalida',next[0]?.cuentaId||null)
+  }
+  function updSalMonto(cuentaId,v){
+    updOp('cuentasSalida',cuentasSal.map(r=>r.cuentaId===cuentaId?{...r,monto:v}:r))
+  }
+
+  // Filter cuentas by currency
+  const cuentasFiltEnt = monEnt ? cuentas.filter(c=>(c.moneda||'').toUpperCase()===monEnt) : cuentas
+  const cuentasFiltSal = monSal ? cuentas.filter(c=>(c.moneda||'').toUpperCase()===monSal) : cuentas
+  const selectedEntIds = new Set(cuentasEnt.map(r=>r.cuentaId))
+  const selectedSalIds = new Set(cuentasSal.map(r=>r.cuentaId))
+
+  function CuentaRow({row, onRemove, onMonto, moneda, color}){
+    const c=cuentas.find(x=>x.id===row.cuentaId)
+    if(!c) return null
+    const bc=color==='green'?'var(--green)':color==='amber'?'var(--amber)':'var(--purple)'
+    const bg=color==='green'?'var(--green-dim)':color==='amber'?'var(--amber-dim)':'var(--purple-dim)'
+    return(
+      <div style={{display:'flex',gap:'8px',alignItems:'center',padding:'8px 12px',borderRadius:'var(--radius)',border:`1.5px solid ${bc}`,background:bg,marginBottom:'6px'}}>
+        <div style={{flex:1}}>
+          <div style={{fontSize:'13px',fontWeight:'500'}}>{c.nombre} <span style={{fontSize:'11px',color:'var(--text2)'}}>{c.tipo} · {c.moneda}</span></div>
+          {c.saldo!=null&&<div style={{fontSize:'11px',color:'var(--text3)'}}>Saldo: {fmt(parseFloat(c.saldo)||0,2)} {c.moneda}</div>}
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:'6px',flexShrink:0}}>
+          <input type="number" value={row.monto} onChange={e=>onMonto(row.cuentaId,e.target.value)}
+            placeholder="Monto (opcional)" style={{width:'150px',padding:'5px 8px',fontSize:'12px'}}/>
+          <span style={{fontSize:'11px',color:'var(--text2)',flexShrink:0}}>{moneda}</span>
+          <button onClick={()=>onRemove(row.cuentaId)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--text3)',fontSize:'16px',lineHeight:1,padding:'2px 4px'}}>✕</button>
+        </div>
+      </div>
+    )
+  }
+
+  function CuentaPicker({label, cuentasFilt, selectedIds, onAdd, color}){
+    const [busq,setBusq]=useState('')
+    const disponibles=cuentasFilt.filter(c=>!selectedIds.has(c.id)&&
+      (c.nombre.toLowerCase().includes(busq.toLowerCase())||(c.moneda||'').toLowerCase().includes(busq.toLowerCase()))
+    )
+    return(
+      <div style={{marginBottom:'4px'}}>
+        <div style={{position:'relative',marginBottom:'6px'}}>
+          <svg style={{position:'absolute',left:'9px',top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder={`Buscar cuenta ${label}...`} style={{paddingLeft:'30px'}}/>
+        </div>
+        {disponibles.length===0&&<div style={{fontSize:'11px',color:'var(--text3)',padding:'6px 0'}}>
+          {cuentasFilt.length===0?'Sin cuentas con esa moneda.':'Sin más cuentas disponibles.'}
+        </div>}
+        <div style={{maxHeight:'160px',overflowY:'auto',border:'0.5px solid var(--border)',borderRadius:'var(--radius)'}}>
+          {disponibles.map(c=>{
+            const bc=color==='green'?'var(--green)':color==='amber'?'var(--amber)':'var(--purple)'
+            return(
+              <div key={c.id} onClick={()=>{onAdd(c.id);setBusq('')}}
+                style={{padding:'8px 12px',cursor:'pointer',borderBottom:'0.5px solid var(--border)',transition:'background .1s'}}
+                onMouseEnter={e=>e.currentTarget.style.background='var(--bg3)'}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div>
+                    <span style={{fontSize:'13px',fontWeight:'500'}}>{c.nombre}</span>
+                    <span style={{fontSize:'11px',color:'var(--text2)',marginLeft:'6px'}}>{c.tipo} · {c.moneda}</span>
+                  </div>
+                  {c.saldo!=null&&<span style={{fontSize:'12px',fontWeight:'500',color:(parseFloat(c.saldo)||0)>=0?'var(--green)':'var(--red)'}}>{fmt(parseFloat(c.saldo)||0,2)} {c.moneda}</span>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
   return(
     <div>
       <div style={S.cardTitle}>{esTrans?'Cuentas origen y destino':'Cuentas de entrada y salida'}</div>
-      {!esTrans&&<div style={{fontSize:'12px',color:'var(--text2)',marginBottom:'12px'}}>La cuenta de <strong>entrada</strong> recibe el monto. La cuenta de <strong>salida</strong> entrega el monto.</div>}
-      {esTrans&&<div style={{fontSize:'12px',color:'var(--text2)',marginBottom:'12px'}}>Saldo se resta de origen y suma en destino.</div>}
-      <AccountPicker label={esTrans?'Cuenta origen':'Cuenta de entrada (recibe)'} cuentas={cuentas} selected={opData.cuentaEntrada} color="green" onSelect={v=>updOp('cuentaEntrada',v)}/>
-      <AccountPicker label={esTrans?'Cuenta destino':'Cuenta de salida (entrega)'} cuentas={esTrans?cuentas.filter(c=>c.id!==opData.cuentaEntrada):cuentas} selected={opData.cuentaSalida} color={esTrans?'purple':'amber'} onSelect={v=>updOp('cuentaSalida',v)}/>
+      <div style={{fontSize:'12px',color:'var(--text2)',marginBottom:'14px'}}>
+        {esTrans?'El saldo se resta de origen y suma en destino.':'Podés agregar múltiples cuentas. El monto por cuenta es opcional — podés completarlo antes de confirmar el pago.'}
+      </div>
+
+      {/* ENTRADA */}
+      <div style={{marginBottom:'16px'}}>
+        <div style={{fontSize:'12px',fontWeight:'500',color:'var(--green)',marginBottom:'8px',display:'flex',alignItems:'center',gap:'6px'}}>
+          <span style={{width:'8px',height:'8px',borderRadius:'50%',background:'var(--green)',display:'inline-block'}}/>
+          Cuentas de entrada {monEnt&&<span style={{fontWeight:'400',color:'var(--text3)'}}>— {monEnt}</span>}
+          {cuentasFiltEnt.length===0&&monEnt&&<span style={{color:'var(--amber)',fontWeight:'400',fontSize:'11px'}}>⚠ Sin cuentas con esa moneda</span>}
+        </div>
+        {cuentasEnt.map(row=><CuentaRow key={row.cuentaId} row={row} onRemove={removeEnt} onMonto={updEntMonto} moneda={monEnt} color="green"/>)}
+        <CuentaPicker label="de entrada" cuentasFilt={cuentasFiltEnt} selectedIds={selectedEntIds} onAdd={addEnt} color="green"/>
+      </div>
+
+      {/* SALIDA */}
+      {!esTrans&&(
+        <div style={{marginBottom:'16px'}}>
+          <div style={{fontSize:'12px',fontWeight:'500',color:'var(--amber)',marginBottom:'8px',display:'flex',alignItems:'center',gap:'6px'}}>
+            <span style={{width:'8px',height:'8px',borderRadius:'50%',background:'var(--amber)',display:'inline-block'}}/>
+            Cuentas de salida {monSal&&<span style={{fontWeight:'400',color:'var(--text3)'}}>— {monSal}</span>}
+            {cuentasFiltSal.length===0&&monSal&&<span style={{color:'var(--amber)',fontWeight:'400',fontSize:'11px'}}>⚠ Sin cuentas con esa moneda</span>}
+          </div>
+          {cuentasSal.map(row=><CuentaRow key={row.cuentaId} row={row} onRemove={removeSal} onMonto={updSalMonto} moneda={monSal} color="amber"/>)}
+          <CuentaPicker label="de salida" cuentasFilt={cuentasFiltSal} selectedIds={selectedSalIds} onAdd={addSal} color="amber"/>
+        </div>
+      )}
+      {esTrans&&(
+        <div style={{marginBottom:'16px'}}>
+          <div style={{fontSize:'12px',fontWeight:'500',color:'var(--purple)',marginBottom:'8px',display:'flex',alignItems:'center',gap:'6px'}}>
+            <span style={{width:'8px',height:'8px',borderRadius:'50%',background:'var(--purple)',display:'inline-block'}}/>
+            Cuentas de destino
+          </div>
+          {cuentasSal.map(row=><CuentaRow key={row.cuentaId} row={row} onRemove={removeSal} onMonto={updSalMonto} moneda={monSal} color="purple"/>)}
+          <CuentaPicker label="destino" cuentasFilt={cuentasFiltSal.filter(c=>!selectedEntIds.has(c.id))} selectedIds={selectedSalIds} onAdd={addSal} color="purple"/>
+        </div>
+      )}
+
       {cuentas.length===0&&<div style={S.empty}>Sin cuentas. <button style={{...S.btnPrimary,...S.btnSm}} onClick={()=>navTo('cuentas')}>Agregar cuenta</button></div>}
       <div style={{display:'flex',justifyContent:'space-between',marginTop:'16px'}}>
         <Btn onClick={()=>setOpStep(3)}>Atrás</Btn>
-        <Btn variant="primary" disabled={!opData.cuentaEntrada} onClick={()=>setOpStep(5)}>Continuar</Btn>
+        <Btn variant="primary" disabled={cuentasEnt.length===0} onClick={()=>setOpStep(5)}>Continuar</Btn>
       </div>
     </div>
   )
@@ -362,34 +496,73 @@ function WizStep4({opData,updOp,setOpStep,cuentas,navTo}){
 function WizStep5({opData,setOpStep,crearOperacion,getCliente,getCuenta}){
   const d=opData
   const cliente=getCliente(d.cliente)
-  const cEnt=getCuenta(d.cuentaEntrada)
-  const cSal=getCuenta(d.cuentaSalida)
   const montoEnt=parseFloat(d.entMonto)||0
   const montoSal=parseFloat(d.salMonto)||0
-  const pnlMonto = !d.tipo||d.tipo==='transferencia' ? 0 : d.tipo==='compra' ? montoEnt-montoSal : montoSal-montoEnt
+  const tasa=parseFloat(d.tasa)||0
+  const sameCcy=d.entMoneda&&d.salMoneda&&d.entMoneda.toUpperCase()===d.salMoneda.toUpperCase()
+  let pnlMonto=null
+  if(d.tipo&&d.tipo!=='transferencia'&&montoEnt>0&&montoSal>0){
+    if(sameCcy) pnlMonto=d.tipo==='compra'?montoEnt-montoSal:montoSal-montoEnt
+    else if(tasa>0){const s=montoSal/tasa;pnlMonto=d.tipo==='compra'?montoEnt-s:s-montoEnt}
+  }
+  const cuentasEnt=d.cuentasEntrada||[]
+  const cuentasSal=d.cuentasSalida||[]
+
+  // Build copy text including all accounts
+  const entLineas=cuentasEnt.map(r=>{const c=getCuenta(r.cuentaId);if(!c)return'';const info=c.tipo==='crypto'?`Red: ${c.red||''} | Dir: ${c.direccion||''}`:`Nro: ${c.numero||''} | Agencia: ${c.agencia||''}`;return `  • ${c.nombre}${r.monto?` — ${fmt(r.monto,2)} ${d.entMoneda}`:''}  (${info})`}).filter(Boolean).join('\n')
+  const salLineas=cuentasSal.map(r=>{const c=getCuenta(r.cuentaId);if(!c)return'';return`  • ${c.nombre}${r.monto?` — ${fmt(r.monto,2)} ${d.salMoneda}`:''}`}).filter(Boolean).join('\n')
   const texto=`OPERACIÓN ${d.tipo.toUpperCase()}
 Cliente: ${cliente?.nombre||''}${cliente?.alias?' ('+cliente.alias+')':''}
-Monto entrada: ${fmt(montoEnt,4)} ${d.entMoneda}
-Monto salida: ${fmt(montoSal,4)} ${d.salMoneda}${d.referencia?'\nReferencia: '+d.referencia:''}
+Monto entrada: ${fmt(montoEnt,2)} ${d.entMoneda}
+Monto salida: ${fmt(montoSal,2)} ${d.salMoneda}${d.tasa?`\nTasa: 1 ${d.entMoneda} = ${fmt(d.tasa,2)} ${d.salMoneda}`:''}${d.referencia?'\nReferencia: '+d.referencia:''}
 Comisión: ${d.comision||'0'}%
 
-DATOS DE PAGO:
-Cuenta entrada: ${cEnt?.nombre||''}
-${cEnt?.tipo==='crypto'?`Red: ${cEnt?.red||''}\nDirección: ${cEnt?.direccion||''}`:`Nro: ${cEnt?.numero||''} · Agencia: ${cEnt?.agencia||''}`}`
+CUENTAS DE ENTRADA:
+${entLineas||'  —'}${salLineas?`\n\nCUENTAS DE SALIDA:\n${salLineas}`:''}`
+
+  function AccountList({rows,color,moneda}){
+    const bc=color==='green'?'var(--green)':color==='amber'?'var(--amber)':'var(--purple)'
+    const bg=color==='green'?'var(--green-dim)':color==='amber'?'var(--amber-dim)':'var(--purple-dim)'
+    return rows.map(r=>{
+      const c=getCuenta(r.cuentaId);if(!c)return null
+      return(
+        <div key={r.cuentaId} style={{background:bg,border:`0.5px solid ${bc}`,borderRadius:'var(--radius)',padding:'10px 14px',marginBottom:'6px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px'}}>
+            <span style={{fontSize:'13px',fontWeight:'500',color:bc}}>{c.nombre}</span>
+            {r.monto&&<span style={{fontSize:'13px',fontWeight:'600',color:bc}}>{fmt(r.monto,2)} {moneda}</span>}
+          </div>
+          {c.tipo==='crypto'?<><div style={{fontSize:'11px',color:bc,opacity:.7}}>Red: {c.red}</div><div style={{...S.mono,color:bc,marginTop:'2px'}}>{c.direccion}</div></>:<div style={{fontSize:'11px',color:bc,opacity:.8}}>Cuenta: {c.numero} · Agencia: {c.agencia}</div>}
+        </div>
+      )
+    })
+  }
+
   return(
     <div>
       <div style={S.cardTitle}>Resumen</div>
       <div style={S.row2}><InfoBox label="Cliente" value={cliente?.nombre}/><InfoBox label="Tipo" value={d.tipo}/></div>
-      <div style={S.row3}><InfoBox label="Entrada" value={`${fmt(montoEnt,4)} ${d.entMoneda}`}/><InfoBox label="Salida" value={`${fmt(montoSal,4)} ${d.salMoneda}`}/><InfoBox label="Comisión" value={d.comision?d.comision+'%':'—'}/></div>
-      <div style={{...S.calcBox,marginBottom:'12px'}}>
-        <div style={{...S.calcTotal,color:pnlMonto>=0?'var(--green)':'var(--red)'}}>
-          <span>Ganancia / Pérdida</span>
-          <span>{pnlMonto>=0?'+':''}{fmt(pnlMonto,4)} {d.entMoneda}</span>
+      <div style={S.row3}><InfoBox label="Entrada" value={`${fmt(montoEnt,2)} ${d.entMoneda}`}/><InfoBox label="Salida" value={`${fmt(montoSal,2)} ${d.salMoneda}`}/><InfoBox label="Comisión" value={d.comision?d.comision+'%':'—'}/></div>
+      {pnlMonto!==null&&(
+        <div style={{...S.calcBox,marginBottom:'12px'}}>
+          <div style={{...S.calcTotal,color:pnlMonto>=0?'var(--green)':'var(--red)'}}>
+            <span>Ganancia / Pérdida</span>
+            <span>{pnlMonto>=0?'+':''}{fmt(pnlMonto,4)} {d.entMoneda}</span>
+          </div>
         </div>
-      </div>
+      )}
       {d.referencia&&<InfoBox label="Referencia" value={d.referencia}/>}
-      {cEnt&&<div style={S.accountBox}><div style={{fontSize:'12px',fontWeight:'500',color:'var(--green)',marginBottom:'6px'}}>Cuenta entrada — {cEnt.nombre}</div>{cEnt.tipo==='crypto'?<><div style={{fontSize:'11px',color:'var(--green)',opacity:.7}}>Red: {cEnt.red}</div><div style={{...S.mono,color:'var(--green)',marginTop:'4px'}}>{cEnt.direccion}</div></>:<div style={{fontSize:'12px',color:'var(--green)',opacity:.8}}>Cuenta: {cEnt.numero} · Agencia: {cEnt.agencia}</div>}</div>}
-      {cSal&&<div style={{...S.accountBox,background:'var(--amber-dim)',border:'0.5px solid rgba(245,166,35,0.3)'}}><div style={{fontSize:'12px',fontWeight:'500',color:'var(--amber)',marginBottom:'4px'}}>Cuenta salida — {cSal.nombre}</div><div style={{fontSize:'12px',color:'var(--amber)',opacity:.8}}>{cSal.moneda}</div></div>}
+      {cuentasEnt.length>0&&(
+        <div style={{marginBottom:'10px'}}>
+          <div style={{fontSize:'11px',color:'var(--green)',fontWeight:'500',marginBottom:'6px'}}>CUENTAS DE ENTRADA</div>
+          <AccountList rows={cuentasEnt} color="green" moneda={d.entMoneda}/>
+        </div>
+      )}
+      {cuentasSal.length>0&&(
+        <div style={{marginBottom:'10px'}}>
+          <div style={{fontSize:'11px',color:'var(--amber)',fontWeight:'500',marginBottom:'6px'}}>{d.tipo==='transferencia'?'CUENTAS DESTINO':'CUENTAS DE SALIDA'}</div>
+          <AccountList rows={cuentasSal} color={d.tipo==='transferencia'?'purple':'amber'} moneda={d.salMoneda}/>
+        </div>
+      )}
       <div style={{display:'flex',gap:'8px',marginBottom:'12px'}}><CopyBtn text={texto}/></div>
       <div style={{display:'flex',justifyContent:'space-between',marginTop:'8px'}}>
         <Btn onClick={()=>setOpStep(4)}>Atrás</Btn>
@@ -433,7 +606,7 @@ export default function App() {
   const [rates,       setRates]       = useState({})
   const [ratesTs,     setRatesTs]     = useState(null)
 
-  function freshOp(){return{cliente:null,tipo:'',entMoneda:'',entMonto:'',salMoneda:'',salMonto:'',tasa:'',referencia:'',comision:'',cuentaEntrada:null,cuentaSalida:null}}
+  function freshOp(){return{cliente:null,tipo:'',entMoneda:'',entMonto:'',salMoneda:'',salMonto:'',tasa:'',referencia:'',comision:'',cuentaEntrada:null,cuentaSalida:null,cuentasEntrada:[],cuentasSalida:[]}}
   function resetOp(){setOpStep(1);setOpData(freshOp())}
   const updOp = useCallback((k,v)=>setOpData(p=>({...p,[k]:v})),[])
 
@@ -479,12 +652,27 @@ export default function App() {
   function deleteCuenta(id){setCuentas(p=>p.filter(c=>c.id!==id))}
 
   function applyBalances(op,snap){
-    const ent=parseFloat(op.entrada.monto)||0
-    const sal=parseFloat(op.salida.monto)||0
+    const totalEnt=parseFloat(op.entrada.monto)||0
+    const totalSal=parseFloat(op.salida.monto)||0
+    const entRows=op.cuentasEntradaIds||[]
+    const salRows=op.cuentasSalidaIds||[]
     return snap.map(c=>{
       let saldo=parseFloat(c.saldo)||0
-      if(c.id===op.cuentaEntradaId) saldo+=ent
-      if(c.id===op.cuentaSalidaId)  saldo-=sal
+      if(entRows.length>0){
+        // if specific monto on account, use it; else if single account, use total
+        const row=entRows.find(r=>r.cuentaId===c.id)
+        if(row){
+          const m=parseFloat(row.monto)||0
+          saldo += m>0 ? m : (entRows.length===1 ? totalEnt : 0)
+        }
+      } else if(c.id===op.cuentaEntradaId) saldo+=totalEnt
+      if(salRows.length>0){
+        const row=salRows.find(r=>r.cuentaId===c.id)
+        if(row){
+          const m=parseFloat(row.monto)||0
+          saldo -= m>0 ? m : (salRows.length===1 ? totalSal : 0)
+        }
+      } else if(c.id===op.cuentaSalidaId) saldo-=totalSal
       return{...c,saldo:parseFloat(saldo.toFixed(8))}
     })
   }
@@ -503,8 +691,10 @@ export default function App() {
       tasa:parseFloat(d.tasa)||null,
       referencia:d.referencia,comisionPct:comPct,comisionMonto:parseFloat((montoEnt*Math.abs(comPct)/100).toFixed(8)),
       pnlMonto,pnlMoneda:d.entMoneda,
-      cuentaEntradaId:d.cuentaEntrada,cuentaSalidaId:d.cuentaSalida||null,
-      cuentaId:d.cuentaEntrada,
+      cuentasEntradaIds:d.cuentasEntrada||[],cuentasSalidaIds:d.cuentasSalida||[],
+      cuentaEntradaId:d.cuentasEntrada?.[0]?.cuentaId||d.cuentaEntrada,
+      cuentaSalidaId:d.cuentasSalida?.[0]?.cuentaId||d.cuentaSalida||null,
+      cuentaId:d.cuentasEntrada?.[0]?.cuentaId||d.cuentaEntrada,
       estado:'activa',fecha:new Date().toLocaleDateString('es-PY'),ref:genRef(),comprobantes:[]
     }
     setOperaciones(p=>[...p,nueva])
@@ -805,8 +995,10 @@ export default function App() {
             <InfoBox label="Comisión" value={op.comisionPct!=null?op.comisionPct+'%':'—'}/>
           </div>
           {op.referencia&&<InfoBox label="Referencia" value={op.referencia}/>}
-          {cEnt&&<div style={S.accountBox}><div style={{fontSize:'12px',fontWeight:'500',color:'var(--green)',marginBottom:'6px'}}>Cuenta entrada — {cEnt.nombre}</div>{cEnt.tipo==='crypto'?<><div style={{fontSize:'11px',color:'var(--green)',opacity:.7}}>Red: {cEnt.red}</div><div style={{...S.mono,color:'var(--green)',marginTop:'4px'}}>{cEnt.direccion}</div></>:<div style={{fontSize:'12px',color:'var(--green)',opacity:.8}}>Cuenta: {cEnt.numero} · Agencia: {cEnt.agencia}</div>}</div>}
-          {cSal&&<div style={{...S.accountBox,background:'var(--amber-dim)',border:'0.5px solid rgba(245,166,35,0.3)'}}><div style={{fontSize:'12px',fontWeight:'500',color:'var(--amber)',marginBottom:'4px'}}>Cuenta salida — {cSal.nombre}</div><div style={{fontSize:'12px',color:'var(--amber)',opacity:.8}}>{cSal.moneda}</div></div>}
+          {/* Cuentas entrada */}
+          {(()=>{const rows=op.cuentasEntradaIds||[];const fallback=cEnt?[{cuentaId:cEnt.id,monto:''}]:[];const list=rows.length>0?rows:fallback;return list.length>0&&(<div style={{marginBottom:'8px'}}><div style={{fontSize:'11px',color:'var(--green)',fontWeight:'500',marginBottom:'6px'}}>CUENTAS DE ENTRADA</div>{list.map(r=>{const c=getCuenta(r.cuentaId);if(!c)return null;return(<div key={r.cuentaId} style={S.accountBox}><div style={{display:'flex',justifyContent:'space-between',marginBottom:'4px'}}><span style={{fontSize:'12px',fontWeight:'500',color:'var(--green)'}}>{c.nombre}</span>{r.monto&&<span style={{fontSize:'13px',fontWeight:'600',color:'var(--green)'}}>{fmt(r.monto,2)} {op.entrada.moneda}</span>}</div>{c.tipo==='crypto'?<><div style={{fontSize:'11px',color:'var(--green)',opacity:.7}}>Red: {c.red}</div><div style={{...S.mono,color:'var(--green)',marginTop:'2px'}}>{c.direccion}</div></>:<div style={{fontSize:'11px',color:'var(--green)',opacity:.8}}>Cuenta: {c.numero} · Agencia: {c.agencia}</div>}</div>)})}</div>)})()}
+          {/* Cuentas salida */}
+          {(()=>{const rows=op.cuentasSalidaIds||[];const fallback=cSal?[{cuentaId:cSal.id,monto:''}]:[];const list=rows.length>0?rows:fallback;return list.length>0&&(<div style={{marginBottom:'8px'}}><div style={{fontSize:'11px',color:'var(--amber)',fontWeight:'500',marginBottom:'6px'}}>{op.tipo==='transferencia'?'CUENTAS DESTINO':'CUENTAS DE SALIDA'}</div>{list.map(r=>{const c=getCuenta(r.cuentaId);if(!c)return null;const bc=op.tipo==='transferencia'?'var(--purple)':'var(--amber)';const bg=op.tipo==='transferencia'?'var(--purple-dim)':'var(--amber-dim)';const bd=op.tipo==='transferencia'?'rgba(167,139,250,0.3)':'rgba(245,166,35,0.3)';return(<div key={r.cuentaId} style={{...S.accountBox,background:bg,border:`0.5px solid ${bd}`}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:'4px'}}><span style={{fontSize:'12px',fontWeight:'500',color:bc}}>{c.nombre}</span>{r.monto&&<span style={{fontSize:'13px',fontWeight:'600',color:bc}}>{fmt(r.monto,2)} {op.salida.moneda}</span>}</div><div style={{fontSize:'11px',color:bc,opacity:.8}}>{c.moneda}</div></div>)})}</div>)})()}
           <div style={{marginTop:'12px'}}>
             <div style={{fontSize:'12px',fontWeight:'500',color:'var(--text2)',marginBottom:'8px'}}>Comprobantes</div>
             {(op.comprobantes||[]).length===0&&<div style={{fontSize:'12px',color:'var(--text3)',marginBottom:'8px'}}>Sin comprobantes.</div>}
