@@ -227,7 +227,13 @@ function WizStep3({opData,updOp,setOpStep}){
     }
   }
 
-  const pnlMonto   = montoSal - montoEnt
+  // P&L from operator view:
+  // compra: you receive entrada, pay salida → gain = entrada - salida
+  // venta:  you deliver entrada, receive salida → gain = salida - entrada
+  // transferencia: internal move, P&L = 0
+  const pnlMonto = !d.tipo||d.tipo==='transferencia' ? 0
+                 : d.tipo==='compra'         ? montoEnt - montoSal
+                 :                             montoSal - montoEnt
   const pnlSameCcy = d.entMoneda && d.salMoneda && d.entMoneda.toUpperCase()===d.salMoneda.toUpperCase()
   const showCalc   = montoEnt>0 && montoSal>0
   const comDisplay = !isNaN(comPct) ? comPct.toFixed(4)+'%' : '—'
@@ -297,7 +303,7 @@ function WizStep5({opData,setOpStep,crearOperacion,getCliente,getCuenta}){
   const cSal=getCuenta(d.cuentaSalida)
   const montoEnt=parseFloat(d.entMonto)||0
   const montoSal=parseFloat(d.salMonto)||0
-  const pnlMonto=montoSal-montoEnt
+  const pnlMonto = !d.tipo||d.tipo==='transferencia' ? 0 : d.tipo==='compra' ? montoEnt-montoSal : montoSal-montoEnt
   const texto=`OPERACIÓN ${d.tipo.toUpperCase()}
 Cliente: ${cliente?.nombre||''}${cliente?.alias?' ('+cliente.alias+')':''}
 Monto entrada: ${fmt(montoEnt,4)} ${d.entMoneda}
@@ -404,8 +410,8 @@ export default function App() {
     const montoEnt=parseFloat(d.entMonto)||0
     const montoSal=parseFloat(d.salMonto)||0
     const comPct=parseFloat(d.comision)||0
-    // Store P&L in entry currency for display
-    const pnlMonto=montoSal-montoEnt
+    // P&L from operator view
+    const pnlMonto = d.tipo==='transferencia' ? 0 : d.tipo==='compra' ? montoEnt-montoSal : montoSal-montoEnt
     const nueva={
       id:'op-'+Date.now(),clienteId:d.cliente,tipo:d.tipo,
       entrada:{moneda:d.entMoneda,monto:montoEnt.toString()},
@@ -441,12 +447,15 @@ export default function App() {
   }
   function removeComprobante(opId,idx){setOperaciones(p=>p.map(o=>o.id===opId?{...o,comprobantes:(o.comprobantes||[]).filter((_,i)=>i!==idx)}:o))}
 
-  // Real P&L in USD using live rates
+  // Real P&L in USD — sign depends on operation type
   function pnlUSD(op){
+    if(op.tipo==='transferencia') return 0
     const entUSD=toUSD(op.entrada.monto,op.entrada.moneda)
     const salUSD=toUSD(op.salida.monto,op.salida.moneda)
     if(entUSD===null||salUSD===null) return null
-    return salUSD-entUSD
+    // compra: gain = entUSD - salUSD (received more than paid)
+    // venta:  gain = salUSD - entUSD (received more than delivered)
+    return op.tipo==='compra' ? entUSD-salUSD : salUSD-entUSD
   }
 
   // ── Dashboard ──────────────────────────────────────────────────────────────
