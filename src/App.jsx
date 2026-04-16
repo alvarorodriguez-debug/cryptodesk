@@ -193,7 +193,7 @@ function WizStep2({opData,updOp,setOpStep,getCliente}){
 // 1. Fill entry + exit   → commission % auto-calculated
 // 2. Fill entry + commission → exit auto-calculated
 // P&L = exit - entry  (real gain/loss from the trade)
-function WizStep3({opData,updOp,setOpStep}){
+function WizStep3({opData,updOp,setOpStep,allMonedas}){
   const d = opData
   const montoEnt = parseFloat(d.entMonto)||0
   const montoSal = parseFloat(d.salMonto)||0
@@ -242,11 +242,23 @@ function WizStep3({opData,updOp,setOpStep}){
     <div>
       <div style={S.cardTitle}>Montos y comisión</div>
       <div style={S.row2}>
-        <div><label style={S.lbl}>Moneda de entrada</label><input value={d.entMoneda} onChange={e=>updOp('entMoneda',e.target.value)} placeholder="USDT, BRL..."/></div>
+        <div>
+          <label style={S.lbl}>Moneda de entrada</label>
+          <select value={d.entMoneda} onChange={e=>updOp('entMoneda',e.target.value)} style={{width:'100%'}}>
+            <option value="">— Seleccionar —</option>
+            {(allMonedas||[]).map(m=><option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
         <div><label style={S.lbl}>Monto de entrada</label><input type="number" value={d.entMonto} onChange={e=>onEntMonto(e.target.value)} placeholder="0.00"/></div>
       </div>
       <div style={S.row2}>
-        <div><label style={S.lbl}>Moneda de salida</label><input value={d.salMoneda} onChange={e=>updOp('salMoneda',e.target.value)} placeholder="PYG, USD..."/></div>
+        <div>
+          <label style={S.lbl}>Moneda de salida</label>
+          <select value={d.salMoneda} onChange={e=>updOp('salMoneda',e.target.value)} style={{width:'100%'}}>
+            <option value="">— Seleccionar —</option>
+            {(allMonedas||[]).map(m=><option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
         <div>
           <label style={S.lbl}>Monto de salida <span style={{fontSize:'10px',color:'var(--text3)',fontWeight:'400'}}>{montoEnt>0&&!d.salMonto&&!isNaN(comPct)?'← se calcula con comisión':''}</span></label>
           <input type="number" value={d.salMonto} onChange={e=>onSalMonto(e.target.value)} placeholder="0.00"/>
@@ -336,6 +348,24 @@ ${cEnt?.tipo==='crypto'?`Red: ${cEnt?.red||''}\nDirección: ${cEnt?.direccion||'
   )
 }
 
+// ── NuevaOpView — at module level so it never unmounts on opData change ────────
+function NuevaOpView({opStep,setOpStep,opData,updOp,clientes,cuentas,allMonedas,crearOperacion,getCliente,getCuenta,setModal,navTo}){
+  const steps=['Cliente','Tipo','Montos','Cuenta','Confirmar']
+  return(
+    <div>
+      <div style={S.h2}>Nueva operación</div>
+      <div style={{...S.card,marginTop:'16px'}}>
+        <div style={S.stepBar}>{steps.map((s,i)=><div key={s} style={S.step(i+1===opStep,i+1<opStep)}>{i+1}. {s}</div>)}</div>
+        {opStep===1&&<WizStep1 clientes={clientes} opData={opData} updOp={updOp} setOpStep={setOpStep} setModal={setModal}/>}
+        {opStep===2&&<WizStep2 opData={opData} updOp={updOp} setOpStep={setOpStep} getCliente={getCliente}/>}
+        {opStep===3&&<WizStep3 opData={opData} updOp={updOp} setOpStep={setOpStep} allMonedas={allMonedas}/>}
+        {opStep===4&&<WizStep4 opData={opData} updOp={updOp} setOpStep={setOpStep} cuentas={cuentas} navTo={navTo}/>}
+        {opStep===5&&<WizStep5 opData={opData} setOpStep={setOpStep} crearOperacion={crearOperacion} getCliente={getCliente} getCuenta={getCuenta}/>}
+      </div>
+    </div>
+  )
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [clientes,    setClientes]    = useState(()=>storage.get('clientes')||[])
@@ -378,6 +408,9 @@ export default function App() {
     if(!rate) return null
     return a/rate
   }
+
+  // All monedas from config (base + custom) — reactive to monedasExtra changes
+  const allMonedas = [...MONEDAS_BASE, ...monedasExtra]
 
   function navTo(v){setView(v);resetOp()}
   const getCliente=id=>clientes.find(c=>c.id===id)
@@ -559,22 +592,7 @@ export default function App() {
     )
   }
 
-  function NuevaOp(){
-    const steps=['Cliente','Tipo','Montos','Cuenta','Confirmar']
-    return(
-      <div>
-        <div style={S.h2}>Nueva operación</div>
-        <div style={{...S.card,marginTop:'16px'}}>
-          <div style={S.stepBar}>{steps.map((s,i)=><div key={s} style={S.step(i+1===opStep,i+1<opStep)}>{i+1}. {s}</div>)}</div>
-          {opStep===1&&<WizStep1 clientes={clientes} opData={opData} updOp={updOp} setOpStep={setOpStep} setModal={setModal}/>}
-          {opStep===2&&<WizStep2 opData={opData} updOp={updOp} setOpStep={setOpStep} getCliente={getCliente}/>}
-          {opStep===3&&<WizStep3 opData={opData} updOp={updOp} setOpStep={setOpStep}/>}
-          {opStep===4&&<WizStep4 opData={opData} updOp={updOp} setOpStep={setOpStep} cuentas={cuentas} navTo={navTo}/>}
-          {opStep===5&&<WizStep5 opData={opData} setOpStep={setOpStep} crearOperacion={crearOperacion} getCliente={getCliente} getCuenta={getCuenta}/>}
-        </div>
-      </div>
-    )
-  }
+  // NuevaOp is defined at module level — see below App
 
   function Operaciones(){
     const filtered=operaciones.filter(o=>filtroOps==='todas'||o.estado===filtroOps)
@@ -834,7 +852,7 @@ export default function App() {
       </div>
       <div style={S.main}>
         {view==='dashboard'       &&<Dashboard/>}
-        {view==='nueva'           &&<NuevaOp/>}
+        {view==='nueva'           &&<NuevaOpView opStep={opStep} setOpStep={setOpStep} opData={opData} updOp={updOp} clientes={clientes} cuentas={cuentas} allMonedas={allMonedas} crearOperacion={crearOperacion} getCliente={getCliente} getCuenta={getCuenta} setModal={setModal} navTo={navTo}/>}
         {view==='operaciones'     &&<Operaciones/>}
         {view==='clientes'        &&<Clientes/>}
         {view==='cuentas'         &&<Cuentas/>}
